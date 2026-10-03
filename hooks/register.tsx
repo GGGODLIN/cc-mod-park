@@ -5,6 +5,7 @@ import {
   STATE_FILE,
   aiTitleOf,
   ageText,
+  defaultsOf,
   firstPromptOf,
   herdrTitleOf,
   isNewWork,
@@ -14,10 +15,13 @@ import {
   projectFolder,
   recapOf,
   restoreReport,
+  sameDefaults,
   serialize,
   shownFor,
   upsert,
   without,
+  withDefaults,
+  type Defaults,
   type Entry,
   type Shown,
 } from './park.ts'
@@ -25,6 +29,7 @@ import {
 const PANE = 'park-list'
 // $.command.run is refused inside a command.run hook (it would wait on the held turn); a short timer runs it after
 const DEFER_MS = 300
+const SETTLE_MS = 800
 
 const readOrNull = async ($: EngineInterface, path: string) => {
   try {
@@ -81,13 +86,41 @@ const runOrNull = async ($: EngineInterface, command: string, args: string) => {
 }
 
 // In-place /resume does not bring back the parked session's model or effort, so set both after it lands
-const resumeAndRestore = async ($: EngineInterface, entry: Entry) => {
+// settings.json is usually a symlink into ~/.claude; writing the link path could replace the link with a plain file
+const settingsFile = async ($: EngineInterface, home: string) => {
+  const link = `${(await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${home}/.claude`}/settings.json`
+  const real = await $.process.run(['realpath', link], { timeoutMs: 5_000 })
+  return real.exitCode === 0 ? real.stdout.trim() : link
+}
+
+const readSettings = async ($: EngineInterface, path: string): Promise<unknown> => {
+  const text = await readOrNull($, path)
+  return text === null ? null : JSON.parse(text)
+}
+
+// Writing back a default leaves the running session alone (checked 2026-10-04: an outside edit of "model" did not switch the open session)
+const putDefaultsBack = async ($: EngineInterface, path: string, model: string | null, before: Defaults): Promise<string> => {
+  // /effort and /resume save after they reply; reading too early would see the old values and skip the repair
+  await $.clock.sleep(SETTLE_MS)
+  const settings = await readSettings($, path)
+  const after = defaultsOf(settings, model)
+  if (sameDefaults(before, after)) return '預設設定：沒被改動'
+  await $.fs.write(path, `${JSON.stringify(withDefaults(settings, model, before), null, 2)}\n`)
+  const check = defaultsOf(await readSettings($, path), model)
+  return sameDefaults(before, check)
+    ? `預設設定：接回改了它，已改回 model ${before.model ?? '（未設定）'}、${model} 的 effort ${before.effort ?? '（未設定）'} ✓`
+    : `預設設定：改回失敗，現在 model ${check.model ?? '（未設定）'}、effort ${check.effort ?? '（未設定）'} ✗`
+}
+
+const resumeAndRestore = async ($: EngineInterface, entry: Entry, home: string) => {
+  const path = await settingsFile($, home)
+  const before = defaultsOf(await readSettings($, path), entry.model)
   await $.command.run({ command: 'resume', args: entry.id })
   if (entry.model !== null && (await $.session.model()) !== entry.model) await runOrNull($, 'model', entry.model)
-  const effortReply = entry.effort === null ? null : await runOrNull($, 'effort', entry.effort)
-  const report = restoreReport(entry, { model: await $.session.model(), effortReply })
+  if (entry.effort !== null) await runOrNull($, 'effort', entry.effort)
+  const lines = [`已接回：${entry.title}`, ...restoreReport(entry, { model: await $.session.model() }), await putDefaultsBack($, path, entry.model, before)]
   // One log call per line: a newline inside one entry renders as a replacement glyph in the transcript
-  for (const line of [`已接回：${entry.title}`, ...report]) $.ui.log(line)
+  for (const line of lines) $.ui.log(line)
 }
 
 export function register(on: On) {
@@ -215,7 +248,7 @@ export function register(on: On) {
         active = false
         closeList($)
         $.clock.after(DEFER_MS, () =>
-          void resumeAndRestore($, entry).then(
+          void resumeAndRestore($, entry, home ?? '').then(
             () => {
               pendingCheck = { model: entry.model, effort: entry.effort }
             },

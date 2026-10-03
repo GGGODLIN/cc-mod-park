@@ -134,11 +134,40 @@ export const modelLine = (model: string | null, effort: string | null): string |
   model === null && effort === null ? null : [model ?? '（model 未記錄）', effort ?? '（effort 未記錄）'].join(' · ')
 
 // One line per setting so a mismatch is visible at a glance after resume
-export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null; effortReply: string | null }): string[] => [
+export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null }): string[] => [
   wanted.model === null
     ? 'model：停泊時沒記錄，未還原'
     : `model：要 ${wanted.model}，現在 ${actual.model ?? '讀不到'} ${actual.model === wanted.model ? '✓' : '✗'}`,
-  wanted.effort === null ? 'effort：停泊時沒記錄，未還原' : `effort：要 ${wanted.effort}，/effort 回應「${actual.effortReply ?? '無'}」`,
+  // /effort run from a plugin returns no text, so the first request after resume is where effort is confirmed
+  wanted.effort === null ? 'effort：停泊時沒記錄，未還原' : `effort：已用 /effort 設為 ${wanted.effort}，送出下一則訊息時確認`,
 ]
 
-export const isNewWork =(text: string) => text.trim().length > 0 && !text.trimStart().startsWith('/')
+// The two settings a resume can overwrite: /resume saves the session's model as the default model,
+// and /effort saves the level as that model's default
+export type Defaults = { model: string | null; effort: string | null }
+
+type Json = Record<string, unknown>
+const asObject = (value: unknown): Json => (typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Json) : {})
+
+export const defaultsOf = (settings: unknown, model: string | null): Defaults => {
+  const root = asObject(settings)
+  const perModel = model === null ? {} : asObject(asObject(root.modelSettings)[model])
+  return { model: str(root.model), effort: str(perModel.effortLevel) }
+}
+
+// Puts back exactly what was there: a key absent before the resume is removed, not set to null
+export const withDefaults = (settings: unknown, model: string | null, wanted: Defaults): Json => {
+  const original = asObject(settings)
+  const { model: _dropped, ...withoutModel } = original
+  const root: Json = wanted.model === null ? withoutModel : { ...original, model: wanted.model }
+  if (model === null) return root
+  const all = asObject(root.modelSettings)
+  const { effortLevel: _droppedEffort, ...otherFields } = asObject(all[model])
+  const entry: Json = wanted.effort === null ? otherFields : { ...asObject(all[model]), effortLevel: wanted.effort }
+  const { [model]: _droppedEntry, ...otherModels } = all
+  return { ...root, modelSettings: Object.keys(entry).length === 0 ? otherModels : { ...all, [model]: entry } }
+}
+
+export const sameDefaults = (a: Defaults, b: Defaults) => a.model === b.model && a.effort === b.effort
+
+export const isNewWork = (text: string) => text.trim().length > 0 && !text.trimStart().startsWith('/')

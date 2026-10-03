@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { aiTitleOf, ageText, firstPromptOf, herdrTitleOf, isNewWork, modelLine, parseList, pickTitle, projectFolder, recapOf, restoreReport, serialize, shownFor, upsert, without, type Entry } from '../hooks/park.ts'
+import { aiTitleOf, ageText, defaultsOf, firstPromptOf, herdrTitleOf, isNewWork, modelLine, parseList, pickTitle, projectFolder, recapOf, restoreReport, sameDefaults, serialize, shownFor, upsert, withDefaults, without, type Entry } from '../hooks/park.ts'
 
 const entry = (over: Partial<Entry>): Entry => ({ id: 's1', dir: '/w/repo', repoRoot: '/w/repo', branch: 'main', title: 't', goal: null, now: null, next: null, model: null, effort: null, parkedAt: 0, ...over })
 const existsIn = (paths: string[]) => (path: string) => paths.includes(path)
@@ -91,15 +91,41 @@ test('model line shows what was recorded and marks what was not', () => {
   expect(modelLine(null, null)).toBeNull()
 })
 
-test('restore report marks a model mismatch and passes the /effort reply through', () => {
-  expect(restoreReport({ model: 'claude-opus-5-5', effort: 'high' }, { model: 'claude-opus-5-5', effortReply: 'Set effort level to high' })).toEqual([
+test('restore report marks a model mismatch and defers effort to the first request', () => {
+  expect(restoreReport({ model: 'claude-opus-5-5', effort: 'high' }, { model: 'claude-opus-5-5' })).toEqual([
     'model：要 claude-opus-5-5，現在 claude-opus-5-5 ✓',
-    'effort：要 high，/effort 回應「Set effort level to high」',
+    'effort：已用 /effort 設為 high，送出下一則訊息時確認',
   ])
-  expect(restoreReport({ model: 'claude-opus-5-5', effort: null }, { model: 'claude-sonnet-5-5', effortReply: null })).toEqual([
+  expect(restoreReport({ model: 'claude-opus-5-5', effort: null }, { model: 'claude-sonnet-5-5' })).toEqual([
     'model：要 claude-opus-5-5，現在 claude-sonnet-5-5 ✗',
     'effort：停泊時沒記錄，未還原',
   ])
+})
+
+describe('defaults write-back', () => {
+  const settings = { model: 'opus', effortLevel: 'xhigh', modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' }, 'claude-sonnet-5-5': { effortLevel: 'medium' } }, tui: 'default' }
+
+  test('reads the default model and the given model\'s default effort', () => {
+    expect(defaultsOf(settings, 'claude-sonnet-5-5')).toEqual({ model: 'opus', effort: 'medium' })
+    expect(defaultsOf(settings, 'claude-fable-5-1')).toEqual({ model: 'opus', effort: null })
+    expect(defaultsOf(null, null)).toEqual({ model: null, effort: null })
+  })
+
+  test('puts back what a resume overwrote and keeps every other key and its order', () => {
+    const touched = { ...settings, model: 'claude-sonnet-5-5', modelSettings: { ...settings.modelSettings, 'claude-sonnet-5-5': { effortLevel: 'low' } } }
+    const fixed = withDefaults(touched, 'claude-sonnet-5-5', { model: 'opus', effort: 'medium' })
+    expect(JSON.stringify(fixed)).toBe(JSON.stringify(settings))
+  })
+
+  test('a key absent before the resume is removed rather than set to null', () => {
+    const touched = { model: 'claude-sonnet-5-5', modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'low' } } }
+    expect(withDefaults(touched, 'claude-sonnet-5-5', { model: null, effort: null })).toEqual({ modelSettings: {} })
+  })
+
+  test('sameDefaults compares both fields', () => {
+    expect(sameDefaults({ model: 'opus', effort: 'high' }, { model: 'opus', effort: 'high' })).toBe(true)
+    expect(sameDefaults({ model: 'opus', effort: 'high' }, { model: 'opus', effort: 'low' })).toBe(false)
+  })
 })
 
 test('only a non-slash prompt counts as starting new work', () => {
