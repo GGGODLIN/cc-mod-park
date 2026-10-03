@@ -8,10 +8,12 @@ import {
   firstPromptOf,
   herdrTitleOf,
   isNewWork,
+  modelLine,
   parseList,
   pickTitle,
   projectFolder,
   recapOf,
+  restoreReport,
   serialize,
   shownFor,
   upsert,
@@ -70,12 +72,34 @@ const closeList = ($: EngineInterface) => {
   $.ui.invalidate('ui.render')
 }
 
+const runOrNull = async ($: EngineInterface, command: string, args: string) => {
+  try {
+    return (await $.command.run({ command, args })).text ?? null
+  } catch (error) {
+    return `失敗：${String(error)}`
+  }
+}
+
+// In-place /resume does not bring back the parked session's model or effort, so set both after it lands
+const resumeAndRestore = async ($: EngineInterface, entry: Entry) => {
+  await $.command.run({ command: 'resume', args: entry.id })
+  if (entry.model !== null && (await $.session.model()) !== entry.model) await runOrNull($, 'model', entry.model)
+  const effortReply = entry.effort === null ? null : await runOrNull($, 'effort', entry.effort)
+  const report = restoreReport(entry, { model: await $.session.model(), effortReply })
+  // One log call per line: a newline inside one entry renders as a replacement glyph in the transcript
+  for (const line of [`已接回：${entry.title}`, ...report]) $.ui.log(line)
+}
+
 export function register(on: On) {
   let home: string | null = null
   let cwd = ''
   let shown: Shown[] = []
   // In memory on purpose: hiding is for this session only, the list on disk stays
   let active = false
+  // The API has no effort getter; the last main-loop request carries it
+  let lastEffort: string | null = null
+  // Checked on the first request after a resume: the setting the model actually got, not what /effort replied
+  let pendingCheck: { model: string | null; effort: string | null } | null = null
 
   let statePath = ''
 
@@ -125,6 +149,8 @@ export function register(on: On) {
         firstPrompt,
       }),
       ...recapOf(await readOrNull($, `${home}/${RECAP_DIR}/${id}.json`)),
+      model: (await $.session.model()).trim() === '' ? null : await $.session.model(),
+      effort: lastEffort,
       parkedAt: await $.clock.now(),
     }
     try {
@@ -134,6 +160,20 @@ export function register(on: On) {
     }
     $.clock.after(DEFER_MS, () => void $.command.run({ command: 'exit' }))
     return { text: `已停泊：${entry.title}` }
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) {
+      if (e.effort !== undefined) lastEffort = String(e.effort)
+      if (pendingCheck !== null) {
+        const wanted = pendingCheck
+        pendingCheck = null
+        const effort = e.effort === undefined ? '（無）' : String(e.effort)
+        const ok = (wanted.model === null || wanted.model === e.model) && (wanted.effort === null || wanted.effort === effort)
+        $.ui.log(`接回後第一則請求實際用：${e.model} · ${effort} ${ok ? '✓ 與停泊時一致' : `✗ 停泊時是 ${modelLine(wanted.model, wanted.effort)}`}`)
+      }
+    }
+    return yield* next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -174,7 +214,14 @@ export function register(on: On) {
         await saveList($, statePath, without(list, entry.id))
         active = false
         closeList($)
-        $.clock.after(DEFER_MS, () => void $.command.run({ command: 'resume', args: entry.id }))
+        $.clock.after(DEFER_MS, () =>
+          void resumeAndRestore($, entry).then(
+            () => {
+              pendingCheck = { model: entry.model, effort: entry.effort }
+            },
+            (error) => $.ui.log(`接回失敗：${String(error)}`),
+          ),
+        )
       })()
     }
 
@@ -198,6 +245,7 @@ export function register(on: On) {
             {entry.goal === null ? null : <Text dimColor wrap="truncate-end">{`goal  ${entry.goal}`}</Text>}
             {entry.now === null ? null : <Text dimColor wrap="truncate-end">{`now   ${entry.now}`}</Text>}
             {entry.next === null ? null : <Text dimColor wrap="truncate-end">{`next  ${entry.next}`}</Text>}
+            {modelLine(entry.model, entry.effort) === null ? null : <Text dimColor wrap="truncate-end">{`model ${modelLine(entry.model, entry.effort)}`}</Text>}
             <Text dimColor wrap="truncate-end">
               {[ageText(entry.parkedAt, now), entry.branch === null ? null : `⎇ ${entry.branch}`, entry.dirGone ? `原目錄已不存在：${entry.dir}` : null].filter((part) => part !== null).join('  ·  ')}
             </Text>

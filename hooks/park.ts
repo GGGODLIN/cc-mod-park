@@ -13,6 +13,9 @@ export type Entry = {
   goal: string | null
   now: string | null
   next: string | null
+  // Null on entries parked before 0.2.0, or before the session sent any request (no effort seen yet)
+  model: string | null
+  effort: string | null
   parkedAt: number
 }
 
@@ -30,7 +33,7 @@ export const parseList = (text: string | null): Entry[] => {
       const dir = str(item?.dir)
       const title = str(item?.title)
       if (id === null || dir === null || title === null || typeof item.parkedAt !== 'number') return []
-      return [{ id, dir, repoRoot: str(item.repoRoot), branch: str(item.branch), title, goal: str(item.goal), now: str(item.now), next: str(item.next), parkedAt: item.parkedAt }]
+      return [{ id, dir, repoRoot: str(item.repoRoot), branch: str(item.branch), title, goal: str(item.goal), now: str(item.now), next: str(item.next), model: str(item.model), effort: str(item.effort), parkedAt: item.parkedAt }]
     })
   } catch {
     return []
@@ -127,4 +130,15 @@ export const ageText = (parkedAt: number, now: number) => {
   return `${Math.floor(hours / 24)} 天前`
 }
 
-export const isNewWork = (text: string) => text.trim().length > 0 && !text.trimStart().startsWith('/')
+export const modelLine = (model: string | null, effort: string | null): string | null =>
+  model === null && effort === null ? null : [model ?? '（model 未記錄）', effort ?? '（effort 未記錄）'].join(' · ')
+
+// One line per setting so a mismatch is visible at a glance after resume
+export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null; effortReply: string | null }): string[] => [
+  wanted.model === null
+    ? 'model：停泊時沒記錄，未還原'
+    : `model：要 ${wanted.model}，現在 ${actual.model ?? '讀不到'} ${actual.model === wanted.model ? '✓' : '✗'}`,
+  wanted.effort === null ? 'effort：停泊時沒記錄，未還原' : `effort：要 ${wanted.effort}，/effort 回應「${actual.effortReply ?? '無'}」`,
+]
+
+export const isNewWork =(text: string) => text.trim().length > 0 && !text.trimStart().startsWith('/')

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { aiTitleOf, ageText, firstPromptOf, herdrTitleOf, isNewWork, parseList, pickTitle, projectFolder, recapOf, serialize, shownFor, upsert, without, type Entry } from '../hooks/park.ts'
+import { aiTitleOf, ageText, firstPromptOf, herdrTitleOf, isNewWork, modelLine, parseList, pickTitle, projectFolder, recapOf, restoreReport, serialize, shownFor, upsert, without, type Entry } from '../hooks/park.ts'
 
-const entry = (over: Partial<Entry>): Entry => ({ id: 's1', dir: '/w/repo', repoRoot: '/w/repo', branch: 'main', title: 't', goal: null, now: null, next: null, parkedAt: 0, ...over })
+const entry = (over: Partial<Entry>): Entry => ({ id: 's1', dir: '/w/repo', repoRoot: '/w/repo', branch: 'main', title: 't', goal: null, now: null, next: null, model: null, effort: null, parkedAt: 0, ...over })
 const existsIn = (paths: string[]) => (path: string) => paths.includes(path)
 
 describe('list file', () => {
@@ -11,6 +11,12 @@ describe('list file', () => {
     expect(parseList('[{"id":"x"},null,' + JSON.stringify(entry({ id: 'b' })) + ']').map((e) => e.id)).toEqual(['b'])
     expect(parseList('not json')).toEqual([])
     expect(parseList(null)).toEqual([])
+  })
+
+  test('an entry parked before model/effort were recorded still loads, with both null', () => {
+    const legacy = { id: 'old', dir: '/w/repo', repoRoot: null, branch: null, title: 't', goal: null, now: null, next: null, parkedAt: 1 }
+    expect(parseList(JSON.stringify([legacy]))[0]).toMatchObject({ id: 'old', model: null, effort: null })
+    expect(parseList(serialize([entry({ model: 'claude-opus-5-5', effort: 'high' })]))[0]).toMatchObject({ model: 'claude-opus-5-5', effort: 'high' })
   })
 
   test('parking the same session again replaces its entry', () => {
@@ -77,6 +83,23 @@ test('age reads in minutes, hours, then days', () => {
   expect(ageText(0, 59 * 60_000)).toBe('59 分鐘前')
   expect(ageText(0, 3 * 3_600_000)).toBe('3 小時前')
   expect(ageText(0, 2.5 * 86_400_000)).toBe('2 天前')
+})
+
+test('model line shows what was recorded and marks what was not', () => {
+  expect(modelLine('claude-opus-5-5', 'high')).toBe('claude-opus-5-5 · high')
+  expect(modelLine('claude-opus-5-5', null)).toBe('claude-opus-5-5 · （effort 未記錄）')
+  expect(modelLine(null, null)).toBeNull()
+})
+
+test('restore report marks a model mismatch and passes the /effort reply through', () => {
+  expect(restoreReport({ model: 'claude-opus-5-5', effort: 'high' }, { model: 'claude-opus-5-5', effortReply: 'Set effort level to high' })).toEqual([
+    'model：要 claude-opus-5-5，現在 claude-opus-5-5 ✓',
+    'effort：要 high，/effort 回應「Set effort level to high」',
+  ])
+  expect(restoreReport({ model: 'claude-opus-5-5', effort: null }, { model: 'claude-sonnet-5-5', effortReply: null })).toEqual([
+    'model：要 claude-opus-5-5，現在 claude-sonnet-5-5 ✗',
+    'effort：停泊時沒記錄，未還原',
+  ])
 })
 
 test('only a non-slash prompt counts as starting new work', () => {
