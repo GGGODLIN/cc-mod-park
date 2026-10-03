@@ -1,0 +1,4 @@
+{
+  "description": "park: /park records this session to ~/.local/state/cc-mod-park/parked.json and exits; a new session in the same folder offers parked sessions back, hidden once a new prompt is sent. Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+  "modules": ["./register.tsx"]
+}

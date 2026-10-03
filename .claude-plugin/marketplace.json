@@ -1,0 +1,13 @@
+{
+  "name": "cc-mod-park",
+  "owner": { "name": "gggodlin" },
+  "metadata": { "description": "cc-mod-park: park a session and resume it later from a new session in the same folder" },
+  "plugins": [
+    {
+      "name": "cc-mod-park",
+      "source": "./",
+      "description": "/park records the session and exits; a new session in the same folder shows a button that lists parked sessions and resumes one in place.",
+      "license": "MIT"
+    }
+  ]
+}

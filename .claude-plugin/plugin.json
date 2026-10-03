@@ -1,0 +1,7 @@
+{
+  "name": "cc-mod-park",
+  "version": "0.1.0",
+  "description": "/park a session you will come back to; a new session in the same folder offers it back with one click.",
+  "author": { "name": "gggodlin" },
+  "license": "MIT"
+}
