@@ -6,6 +6,8 @@ https://github.com/user-attachments/assets/878b33a8-cf31-462f-8019-1daf972bfc79
 
 Typical use: it is Friday, the work is not done, and you do not want the session sitting open all weekend or lost after a reboot. Type `/park`, close the laptop, and on Monday start `claude` in the same folder.
 
+Keeping a session open is not free. On the author's machine each idle session held about 600 MB of memory (7 sessions, 4.4 GB in total, measured 2026-10-05). And if you run several sessions that message each other, an idle one can be woken to answer, spending a full turn, at full price once its prompt cache has expired.
+
 ## How it works
 
 1. `/park [note]` records the session (title, git branch, model, effort) to `~/.local/state/cc-mod-park/parked.json`, then exits.
@@ -76,6 +78,8 @@ To try local changes, bump `version` in `.claude-plugin/plugin.json` and run `cl
 把還沒做完的 Claude Code session 停起來，之後在同一個資料夾開新 session，點一下就接回去。停泊和接回都不經過模型。
 
 適用情境：週五事情沒做完，不想讓 session 開著過週末，也怕重開機後找不回來。打 `/park` 就關機，週一在同一個資料夾開 `claude` 即可。
+
+session 開著也有成本：在作者的機器上，每個閒置 session 約佔 600MB 記憶體（7 個 session 共 4.4GB，2026-10-05 量測）。如果你同時開多個會互傳訊息的 session，閒置的那個還可能被訊息喚醒、跑一整輪來回覆，prompt cache 過期後就是全價。
 
 1. `/park [備註]` 把 session 的標題、git 分支、model、effort 記進 `~/.local/state/cc-mod-park/parked.json`，然後自動結束。
 2. 在同一個資料夾開新 session，輸入框上方會出現「N 個停泊的 session」按鈕。
