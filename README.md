@@ -20,6 +20,12 @@ Details:
 - Resuming a parked session any other way (`claude --resume`, the `/resume` picker) removes it from the list.
 - The title comes from, in order: your `/park` note, a Herdr pane title, the session's AI title, or the first prompt. The Herdr and recap sources are files from the author's own setup (`~/.local/state/herdr-session-title/state.json`, `~/.cache/cc-recap/<id>.json`); when they are missing they are skipped.
 
+## Why a mod, not a slash command
+
+A custom slash command (`commands/*.md`) is a prompt: running it wakes the model and leaves the expansion in the context. Parking a session should not cost a turn, and a resumed session should not carry a "please park me" exchange in its history.
+
+A mod registers `/park` as a command whose handler answers on its own, the way `/cost` does, so nothing reaches the model and nothing is added to the context except the one-line result. The resume side needs a mod too: the button above the prompt and the side pane are UI that only a mod can draw.
+
 ## Install
 
 This is a Claude Code mod: a plugin made of function hooks. Function hooks are off by default, so turn them on first in `~/.claude/settings.json`:
@@ -71,5 +77,7 @@ To try local changes, bump `version` in `.claude-plugin/plugin.json` and run `cl
 4. 接回後會回報當初的 model 與 effort。如果 `/resume` 改掉了 `settings.json` 裡的預設 model 或 effort，會自動寫回原值。
 
 送出第一則不是斜線指令的訊息後，按鈕就會藏起來。
+
+為什麼做成 mod、不做成一般 slash command：一般自訂指令（`commands/*.md`）會展開成 prompt 交給模型，停泊一次就要花一輪，接回後的對話裡也會留著那段請求。mod 註冊的 `/park` 由程式自己處理，跟 `/cost` 一樣不經模型，對話裡只留一行結果。接回用的按鈕和右側面板也只有 mod 畫得出來。
 
 安裝前要先在 `settings.json` 的 `env` 加 `"CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"`，再執行上面的兩行 `claude plugin` 指令。目前只在 macOS 上的 Claude Code 2.1.288 與 2.1.289 實測過。
