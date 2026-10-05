@@ -28,8 +28,8 @@ describe('list file', () => {
 
 describe('shownFor', () => {
   test('only sessions parked in this exact folder show, newest first', () => {
-    const list = [entry({ id: 'here-old', parkedAt: 1 }), entry({ id: 'child', dir: '/w/repo/sub' }), entry({ id: 'other', dir: '/w/calyx', repoRoot: null }), entry({ id: 'here-new', parkedAt: 2 })]
-    const shown = shownFor(list, '/w/repo', existsIn(['/w/repo', '/w/repo/sub', '/w/calyx']))
+    const list = [entry({ id: 'here-old', parkedAt: 1 }), entry({ id: 'child', dir: '/w/repo/sub' }), entry({ id: 'other', dir: '/w/other', repoRoot: null }), entry({ id: 'here-new', parkedAt: 2 })]
+    const shown = shownFor(list, '/w/repo', existsIn(['/w/repo', '/w/repo/sub', '/w/other']))
     expect(shown.map((e) => e.id)).toEqual(['here-new', 'here-old'])
   })
 
