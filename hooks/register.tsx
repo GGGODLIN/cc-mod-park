@@ -5,6 +5,7 @@ import {
   STATE_FILE,
   aiTitleOf,
   ageText,
+  defaultsBefore,
   defaultsOf,
   firstPromptOf,
   herdrTitleOf,
@@ -20,9 +21,10 @@ import {
   shownFor,
   upsert,
   without,
-  withDefaults,
+  writeBackPlan,
   type Defaults,
   type Entry,
+  type SettingsRead,
   type Shown,
 } from './park.ts'
 
@@ -77,11 +79,13 @@ const closeList = ($: EngineInterface) => {
   $.ui.invalidate('ui.render')
 }
 
-const runOrNull = async ($: EngineInterface, command: string, args: string) => {
+// The error text, or null when the command ran
+const runError = async ($: EngineInterface, command: string, args: string) => {
   try {
-    return (await $.command.run({ command, args })).text ?? null
+    await $.command.run({ command, args })
+    return null
   } catch (error) {
-    return `失敗：${String(error)}`
+    return String(error)
   }
 }
 
@@ -93,32 +97,57 @@ const settingsFile = async ($: EngineInterface, home: string) => {
   return real.exitCode === 0 ? real.stdout.trim() : link
 }
 
-const readSettings = async ($: EngineInterface, path: string): Promise<unknown> => {
-  const text = await readOrNull($, path)
-  return text === null ? null : JSON.parse(text)
+const readSettings = async ($: EngineInterface, path: string): Promise<SettingsRead> => {
+  try {
+    if (!(await $.fs.exists(path))) return { kind: 'missing' }
+    return { kind: 'ok', value: JSON.parse(await $.fs.read(path)) }
+  } catch {
+    return { kind: 'unreadable' }
+  }
 }
 
 // Writing back a default leaves the running session alone (checked 2026-10-04: an outside edit of "model" did not switch the open session)
-const putDefaultsBack = async ($: EngineInterface, path: string, model: string | null, before: Defaults): Promise<string> => {
+// Another writer changing model or effort in the same window is also put back: the file alone cannot tell who changed it
+const putDefaultsBack = async ($: EngineInterface, path: string, model: string | null, before: Defaults | null): Promise<string> => {
   // /effort and /resume save after they reply; reading too early would see the old values and skip the repair
   await $.clock.sleep(SETTLE_MS)
-  const settings = await readSettings($, path)
-  const after = defaultsOf(settings, model)
-  if (sameDefaults(before, after)) return '預設設定：沒被改動'
-  await $.fs.write(path, `${JSON.stringify(withDefaults(settings, model, before), null, 2)}\n`)
-  const check = defaultsOf(await readSettings($, path), model)
-  return sameDefaults(before, check)
+  const plan = writeBackPlan(before, await readSettings($, path), model)
+  if (plan.write === null) return plan.line
+  try {
+    await $.fs.write(path, `${JSON.stringify(plan.write, null, 2)}\n`)
+  } catch (error) {
+    return `預設設定：寫回失敗（${String(error)}），請自己確認 /model 與 /effort 的預設 ✗`
+  }
+  const reread = await readSettings($, path)
+  const check = defaultsOf(reread.kind === 'ok' ? reread.value : null, model)
+  return before !== null && sameDefaults(before, check)
     ? `預設設定：接回改了它，已改回 model ${before.model ?? '（未設定）'}、${model} 的 effort ${before.effort ?? '（未設定）'} ✓`
     : `預設設定：改回失敗，現在 model ${check.model ?? '（未設定）'}、effort ${check.effort ?? '（未設定）'} ✗`
 }
 
-const resumeAndRestore = async ($: EngineInterface, entry: Entry, home: string) => {
+// The entry leaves the list only once this session is the parked one; a stale entry costs a click, a lost one loses the bookmark
+const dropIfLanded = async ($: EngineInterface, entry: Entry, statePath: string): Promise<string | null> => {
+  const landed = await $.session.id()
+  if (landed !== entry.id) return `停泊清單：目前 session 是 ${landed}，不是停泊的那一筆，紀錄保留`
+  try {
+    await saveList($, statePath, without(await loadList($, statePath), entry.id))
+    return null
+  } catch (error) {
+    return `停泊清單：沒能移除這一筆（${String(error)}），之後可按「移除」`
+  }
+}
+
+// Throws only when /resume itself fails, so the caller keeps the entry; later failures become report lines
+const resumeAndRestore = async ($: EngineInterface, entry: Entry, home: string, statePath: string) => {
   const path = await settingsFile($, home)
-  const before = defaultsOf(await readSettings($, path), entry.model)
+  const before = defaultsBefore(await readSettings($, path), entry.model)
   await $.command.run({ command: 'resume', args: entry.id })
-  if (entry.model !== null && (await $.session.model()) !== entry.model) await runOrNull($, 'model', entry.model)
-  if (entry.effort !== null) await runOrNull($, 'effort', entry.effort)
-  const lines = [`已接回：${entry.title}`, ...restoreReport(entry, { model: await $.session.model() }), await putDefaultsBack($, path, entry.model, before)]
+  if (entry.model !== null && (await $.session.model()) !== entry.model) await runError($, 'model', entry.model)
+  const effortError = entry.effort === null ? null : await runError($, 'effort', entry.effort)
+  const report = restoreReport(entry, { model: await $.session.model(), effortError })
+  const defaultsLine = await putDefaultsBack($, path, entry.model, before)
+  const listLine = await dropIfLanded($, entry, statePath)
+  const lines = [`已接回：${entry.title}`, ...report, defaultsLine, ...(listLine === null ? [] : [listLine])]
   // One log call per line: a newline inside one entry renders as a replacement glyph in the transcript
   for (const line of lines) $.ui.log(line)
 }
@@ -244,15 +273,15 @@ export function register(on: On) {
           $.ui.invalidate('ui.render')
           return
         }
-        await saveList($, statePath, without(list, entry.id))
+        // The entry leaves the list only after the resume lands (in resumeAndRestore), so a failed one keeps the bookmark
         active = false
         closeList($)
         $.clock.after(DEFER_MS, () =>
-          void resumeAndRestore($, entry, home ?? '').then(
+          void resumeAndRestore($, entry, home ?? '', statePath).then(
             () => {
               pendingCheck = { model: entry.model, effort: entry.effort }
             },
-            (error) => $.ui.log(`接回失敗：${String(error)}`),
+            (error) => $.ui.log(`接回失敗：${String(error)}；停泊紀錄保留`),
           ),
         )
       })()

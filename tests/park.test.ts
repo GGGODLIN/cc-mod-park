@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { aiTitleOf, ageText, defaultsOf, firstPromptOf, herdrTitleOf, isNewWork, modelLine, parseList, pickTitle, projectFolder, recapOf, restoreReport, sameDefaults, serialize, shownFor, upsert, withDefaults, without, type Entry } from '../hooks/park.ts'
+import { aiTitleOf, ageText, defaultsBefore, defaultsOf, firstPromptOf, herdrTitleOf, isNewWork, modelLine, parseList, pickTitle, projectFolder, recapOf, restoreReport, sameDefaults, serialize, shownFor, upsert, withDefaults, without, writeBackPlan, type Entry } from '../hooks/park.ts'
 
 const entry = (over: Partial<Entry>): Entry => ({ id: 's1', dir: '/w/repo', repoRoot: '/w/repo', branch: 'main', title: 't', goal: null, now: null, next: null, model: null, effort: null, parkedAt: 0, ...over })
 const existsIn = (paths: string[]) => (path: string) => paths.includes(path)
@@ -57,7 +57,7 @@ describe('title', () => {
   })
 
   test('herdr title and recap read tolerantly', () => {
-    expect(herdrTitleOf(JSON.stringify({ s1: { name: 'Calyx Session Resume' }, s2: { name: '' } }), 's1')).toBe('Calyx Session Resume')
+    expect(herdrTitleOf(JSON.stringify({ s1: { name: 'Checkout Redesign' }, s2: { name: '' } }), 's1')).toBe('Checkout Redesign')
     expect(herdrTitleOf(JSON.stringify({ s2: { name: '' } }), 's2')).toBeNull()
     expect(herdrTitleOf('{', 's1')).toBeNull()
     expect(recapOf(JSON.stringify({ goal: 'g', now: 'n', next: '' }))).toEqual({ goal: 'g', now: 'n', next: null })
@@ -92,14 +92,18 @@ test('model line shows what was recorded and marks what was not', () => {
 })
 
 test('restore report marks a model mismatch and defers effort to the first request', () => {
-  expect(restoreReport({ model: 'claude-opus-5-5', effort: 'high' }, { model: 'claude-opus-5-5' })).toEqual([
+  expect(restoreReport({ model: 'claude-opus-5-5', effort: 'high' }, { model: 'claude-opus-5-5', effortError: null })).toEqual([
     'model：要 claude-opus-5-5，現在 claude-opus-5-5 ✓',
     'effort：已用 /effort 設為 high，送出下一則訊息時確認',
   ])
-  expect(restoreReport({ model: 'claude-opus-5-5', effort: null }, { model: 'claude-sonnet-5-5' })).toEqual([
+  expect(restoreReport({ model: 'claude-opus-5-5', effort: null }, { model: 'claude-sonnet-5-5', effortError: null })).toEqual([
     'model：要 claude-opus-5-5，現在 claude-sonnet-5-5 ✗',
     'effort：停泊時沒記錄，未還原',
   ])
+})
+
+test('a failed /effort is reported as failed, not as set', () => {
+  expect(restoreReport({ model: null, effort: 'high' }, { model: 'claude-opus-5-5', effortError: 'Error: boom' })[1]).toBe('effort：/effort high 失敗（Error: boom），未還原 ✗')
 })
 
 describe('defaults write-back', () => {
@@ -120,6 +124,27 @@ describe('defaults write-back', () => {
   test('a key absent before the resume is removed rather than set to null', () => {
     const touched = { model: 'claude-sonnet-5-5', modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'low' } } }
     expect(withDefaults(touched, 'claude-sonnet-5-5', { model: null, effort: null })).toEqual({ modelSettings: {} })
+  })
+
+  test('writes back only over a settings file it could read as an object', () => {
+    const before = { model: 'opus', effort: 'medium' }
+    const touched = { ...settings, model: 'claude-sonnet-5-5' }
+    expect(writeBackPlan(before, { kind: 'ok', value: touched }, 'claude-sonnet-5-5').write).toEqual(withDefaults(touched, 'claude-sonnet-5-5', before))
+    for (const now of [{ kind: 'missing' }, { kind: 'unreadable' }, { kind: 'ok', value: null }, { kind: 'ok', value: [] }] as const) {
+      expect(writeBackPlan(before, now, 'claude-sonnet-5-5')).toEqual({ write: null, line: '預設設定：讀不到 settings.json，沒有改回；請自己確認 /model 與 /effort 的預設' })
+    }
+  })
+
+  test('does not write when the defaults before the resume are unknown or unchanged', () => {
+    expect(writeBackPlan(null, { kind: 'ok', value: settings }, 'claude-sonnet-5-5')).toEqual({ write: null, line: '預設設定：接回前讀不到 settings.json，沒有檢查是否被改動' })
+    expect(writeBackPlan({ model: 'opus', effort: 'medium' }, { kind: 'ok', value: settings }, 'claude-sonnet-5-5')).toEqual({ write: null, line: '預設設定：沒被改動' })
+  })
+
+  test('defaults before a resume: a missing file means none set, an unreadable one means unknown', () => {
+    expect(defaultsBefore({ kind: 'ok', value: settings }, 'claude-sonnet-5-5')).toEqual({ model: 'opus', effort: 'medium' })
+    expect(defaultsBefore({ kind: 'missing' }, 'claude-sonnet-5-5')).toEqual({ model: null, effort: null })
+    expect(defaultsBefore({ kind: 'unreadable' }, 'claude-sonnet-5-5')).toBeNull()
+    expect(defaultsBefore({ kind: 'ok', value: 'x' }, 'claude-sonnet-5-5')).toBeNull()
   })
 
   test('sameDefaults compares both fields', () => {

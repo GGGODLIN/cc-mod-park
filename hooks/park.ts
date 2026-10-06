@@ -134,12 +134,16 @@ export const modelLine = (model: string | null, effort: string | null): string |
   model === null && effort === null ? null : [model ?? '（model 未記錄）', effort ?? '（effort 未記錄）'].join(' · ')
 
 // One line per setting so a mismatch is visible at a glance after resume
-export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null }): string[] => [
+export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null; effortError: string | null }): string[] => [
   wanted.model === null
     ? 'model：停泊時沒記錄，未還原'
     : `model：要 ${wanted.model}，現在 ${actual.model ?? '讀不到'} ${actual.model === wanted.model ? '✓' : '✗'}`,
   // /effort run from a plugin returns no text, so the first request after resume is where effort is confirmed
-  wanted.effort === null ? 'effort：停泊時沒記錄，未還原' : `effort：已用 /effort 設為 ${wanted.effort}，送出下一則訊息時確認`,
+  wanted.effort === null
+    ? 'effort：停泊時沒記錄，未還原'
+    : actual.effortError !== null
+      ? `effort：/effort ${wanted.effort} 失敗（${actual.effortError}），未還原 ✗`
+      : `effort：已用 /effort 設為 ${wanted.effort}，送出下一則訊息時確認`,
 ]
 
 // The two settings a resume can overwrite: /resume saves the session's model as the default model,
@@ -169,5 +173,24 @@ export const withDefaults = (settings: unknown, model: string | null, wanted: De
 }
 
 export const sameDefaults = (a: Defaults, b: Defaults) => a.model === b.model && a.effort === b.effort
+
+// A failed read must not look like an empty file: writing back over "nothing" would wipe every other setting
+export type SettingsRead = { kind: 'ok'; value: unknown } | { kind: 'missing' } | { kind: 'unreadable' }
+
+const isObject = (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// Null means unknown, so nothing after the resume can be judged against it
+export const defaultsBefore = (read: SettingsRead, model: string | null): Defaults | null => {
+  if (read.kind === 'missing') return { model: null, effort: null }
+  if (read.kind === 'unreadable' || !isObject(read.value)) return null
+  return defaultsOf(read.value, model)
+}
+
+export const writeBackPlan = (before: Defaults | null, now: SettingsRead, model: string | null): { write: null; line: string } | { write: Json; line: null } => {
+  if (before === null) return { write: null, line: '預設設定：接回前讀不到 settings.json，沒有檢查是否被改動' }
+  if (now.kind !== 'ok' || !isObject(now.value)) return { write: null, line: '預設設定：讀不到 settings.json，沒有改回；請自己確認 /model 與 /effort 的預設' }
+  if (sameDefaults(before, defaultsOf(now.value, model))) return { write: null, line: '預設設定：沒被改動' }
+  return { write: withDefaults(now.value, model, before), line: null }
+}
 
 export const isNewWork = (text: string) => text.trim().length > 0 && !text.trimStart().startsWith('/')
