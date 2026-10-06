@@ -4,7 +4,7 @@ English | [繁體中文](/README.zh-TW.md)
 
 Park a Claude Code session you will come back to, then pick it up again from a new session in the same folder with one click. Neither step goes through the model.
 
-https://github.com/user-attachments/assets/878b33a8-cf31-462f-8019-1daf972bfc79
+https://github.com/user-attachments/assets/b186dbce-2c2f-462c-a509-cecfa45d9858
 
 Typical use: it is Friday, the work is not done, and you do not want the session sitting open all weekend or lost after a reboot. Type `/park`, close the laptop, and on Monday start `claude` in the same folder.
 
