@@ -11,8 +11,8 @@ Keeping a session open is not free. On the author's machine each idle session he
 ## How it works
 
 1. `/park [note]` records the session to `~/.local/state/cc-mod-park/parked.json`, then exits. An entry holds the session id, its folder and repo root, the git branch, the title, model and effort, and, when the author's recap file exists, its goal / now / next lines. That can include work details, so treat the file like your transcripts.
-2. A new session started in the same folder shows a "N 個停泊的 session" (N parked sessions) button above the prompt.
-3. The button opens a side pane listing the parked sessions, newest first. "接回" (resume) runs `/resume` in place; "移除" (remove) drops the entry.
+2. A new session started in the same folder shows an "N parked sessions" button above the prompt.
+3. The button opens a side pane listing the parked sessions, newest first. "Resume" runs `/resume` in place; "Remove" drops the entry.
 4. After the resume, the model and effort the session had when parked are reported, and your default model and effort in `settings.json` are put back if the resume changed them.
 
 The button hides once you send your first prompt that is not a slash command, so it stays out of the way of new work.
@@ -45,16 +45,19 @@ claude plugin install cc-mod-park@cc-mod-park
 
 Sessions started after the install load it.
 
+## Language
+
+The UI comes in English and Traditional Chinese. The default `auto` follows the `language` in Claude Code's `settings.json` (for example `繁體中文`), then `LC_ALL` / `LANG`, and falls back to English; any Chinese shows Traditional Chinese. The language is read once, when a session starts. To pin a language, open `/config`, find this plugin's Language, and pick `en` or `zh-TW`.
+
 ## Known limits
 
 - Tested on Claude Code 2.1.288 and 2.1.289, on macOS; loading checked on 2.1.290. Function hooks are a newer surface of Claude Code, and later versions may change it.
 - Every session shares one list file, written whole each time. Two sessions parking or resuming in the same moment can drop one of the changes.
 - The list file lives under `$HOME`, not under `CLAUDE_CONFIG_DIR`, so separate config folders for the same user share one list.
-- After "接回", your default model and effort in `settings.json` are put back if they changed. A change another session or you made in that same second is put back too, since the file cannot tell who changed it. If `settings.json` cannot be read, nothing is written and the result line says so.
-- The UI text is in Traditional Chinese.
+- After Resume, your default model and effort in `settings.json` are put back if they changed. A change another session or you made in that same second is put back too, since the file cannot tell who changed it. If `settings.json` cannot be read, nothing is written and the result line says so.
 - `/park` typed while the model is still answering gets queued and then dropped. Wait for the turn to end, then type it.
 - To reach the button by keyboard, press `ctrl+x tab` to move into the row above the prompt. Focus may land on another mod's button first.
-- After "接回", the old conversation takes a few seconds to appear. The status line shows the restored model only after the next message.
+- After Resume, the old conversation takes a few seconds to appear. The status line shows the restored model only after the next message.
 
 ## Development
 
@@ -80,6 +83,8 @@ session 開著也有成本：在作者的機器上，每個閒置 session 約佔
 4. 接回後會回報當初的 model 與 effort。如果 `/resume` 改掉了 `settings.json` 裡的預設 model 或 effort，會自動寫回原值。
 
 送出第一則不是斜線指令的訊息後，按鈕就會藏起來。
+
+介面有英文與繁體中文。預設 `auto`：先看 Claude Code `settings.json` 的 `language`（例如「繁體中文」），再看 `LC_ALL`／`LANG`，都沒有就用英文；任何中文都顯示繁體中文。語言在 session 啟動時讀一次。要固定語言，在 `/config` 找到這個 plugin 的 Language 選 `en` 或 `zh-TW`。
 
 為什麼不直接用 `/resume`：原生 `/resume` 的選單列出所有 session，過幾天就分不出哪些做完了、哪些還要接。`/park` 是在你還記得的時候先做好標記，清單裡只有你標過「還沒做完」的 session，接回後就移出清單。
 
