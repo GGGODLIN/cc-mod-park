@@ -1,7 +1,22 @@
 {
   "name": "cc-mod-park",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "/park a session you will come back to; a new session in the same folder offers it back with one click.",
-  "author": { "name": "gggodlin" },
-  "license": "MIT"
+  "author": {
+    "name": "gggodlin"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "UI language. auto follows Claude Code's language setting, then LC_ALL / LANG, else English.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "en",
+        "zh-TW"
+      ]
+    }
+  }
 }

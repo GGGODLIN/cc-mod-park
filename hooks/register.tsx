@@ -1,4 +1,5 @@
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+import { pickLocale, stringsFor, type Strings } from './i18n.ts'
 import {
   HERDR_TITLE_FILE,
   RECAP_DIR,
@@ -32,6 +33,8 @@ const PANE = 'park-list'
 // $.command.run is refused inside a command.run hook (it would wait on the held turn); a short timer runs it after
 const DEFER_MS = 300
 const SETTLE_MS = 800
+// English until session.start has read the language settings
+let ui: Strings = stringsFor('en')
 
 const readOrNull = async ($: EngineInterface, path: string) => {
   try {
@@ -111,29 +114,29 @@ const readSettings = async ($: EngineInterface, path: string): Promise<SettingsR
 const putDefaultsBack = async ($: EngineInterface, path: string, model: string | null, before: Defaults | null): Promise<string> => {
   // /effort and /resume save after they reply; reading too early would see the old values and skip the repair
   await $.clock.sleep(SETTLE_MS)
-  const plan = writeBackPlan(before, await readSettings($, path), model)
+  const plan = writeBackPlan(before, await readSettings($, path), model, ui)
   if (plan.write === null) return plan.line
   try {
     await $.fs.write(path, `${JSON.stringify(plan.write, null, 2)}\n`)
   } catch (error) {
-    return `預設設定：寫回失敗（${String(error)}），請自己確認 /model 與 /effort 的預設 ✗`
+    return ui.defaultsWriteFailed(String(error))
   }
   const reread = await readSettings($, path)
   const check = defaultsOf(reread.kind === 'ok' ? reread.value : null, model)
   return before !== null && sameDefaults(before, check)
-    ? `預設設定：接回改了它，已改回 model ${before.model ?? '（未設定）'}、${model} 的 effort ${before.effort ?? '（未設定）'} ✓`
-    : `預設設定：改回失敗，現在 model ${check.model ?? '（未設定）'}、effort ${check.effort ?? '（未設定）'} ✗`
+    ? ui.defaultsRestored(before.model ?? ui.notSet, model ?? ui.notSet, before.effort ?? ui.notSet)
+    : ui.defaultsRestoreFailed(check.model ?? ui.notSet, check.effort ?? ui.notSet)
 }
 
 // The entry leaves the list only once this session is the parked one; a stale entry costs a click, a lost one loses the bookmark
 const dropIfLanded = async ($: EngineInterface, entry: Entry, statePath: string): Promise<string | null> => {
   const landed = await $.session.id()
-  if (landed !== entry.id) return `停泊清單：目前 session 是 ${landed}，不是停泊的那一筆，紀錄保留`
+  if (landed !== entry.id) return ui.wrongSession(landed)
   try {
     await saveList($, statePath, without(await loadList($, statePath), entry.id))
     return null
   } catch (error) {
-    return `停泊清單：沒能移除這一筆（${String(error)}），之後可按「移除」`
+    return ui.dropFailed(String(error))
   }
 }
 
@@ -144,15 +147,15 @@ const resumeAndRestore = async ($: EngineInterface, entry: Entry, home: string, 
   await $.command.run({ command: 'resume', args: entry.id })
   if (entry.model !== null && (await $.session.model()) !== entry.model) await runError($, 'model', entry.model)
   const effortError = entry.effort === null ? null : await runError($, 'effort', entry.effort)
-  const report = restoreReport(entry, { model: await $.session.model(), effortError })
+  const report = restoreReport(entry, { model: await $.session.model(), effortError }, ui)
   const defaultsLine = await putDefaultsBack($, path, entry.model, before)
   const listLine = await dropIfLanded($, entry, statePath)
-  const lines = [`已接回：${entry.title}`, ...report, defaultsLine, ...(listLine === null ? [] : [listLine])]
+  const lines = [ui.resumed(entry.title), ...report, defaultsLine, ...(listLine === null ? [] : [listLine])]
   // One log call per line: a newline inside one entry renders as a replacement glyph in the transcript
   for (const line of lines) $.ui.log(line)
 }
 
-export function register(on: On) {
+export const register: Register = (on, options) => {
   let home: string | null = null
   let cwd = ''
   let shown: Shown[] = []
@@ -169,7 +172,13 @@ export function register(on: On) {
     home = (await $.env.get('HOME')) ?? null
     if (home === null) return next(e)
     statePath = `${home}/${STATE_FILE}`
-    await $.command.register({ name: 'park', description: '停泊這個 session，之後在同目錄開新 session 可接回', argumentHint: '[備註]' })
+    // An empty LC_ALL means unset to the C library, so it must not hide LANG
+    const lcAll = await $.env.get('LC_ALL')
+    const envLang = lcAll !== undefined && lcAll !== '' ? lcAll : await $.env.get('LANG')
+    const settings = await readSettings($, await settingsFile($, home))
+    const claudeLanguage = settings.kind === 'ok' ? (settings.value as { language?: unknown } | null)?.language : undefined
+    ui = stringsFor(pickLocale({ option: options.language, claudeLanguage, envLang }))
+    await $.command.register({ name: 'park', description: ui.commandDescription, argumentHint: ui.argumentHint })
     try {
       cwd = await $.session.cwd()
       let list = await loadList($, statePath)
@@ -189,7 +198,7 @@ export function register(on: On) {
   })
 
   on('command.run', { command: 'park' }, async ($, e) => {
-    if (home === null) return { text: 'park: 讀不到 HOME，沒有停泊' }
+    if (home === null) return { text: ui.noHome }
     const id = await $.session.id()
     const dir = await $.session.cwd()
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${home}/.claude`
@@ -209,7 +218,7 @@ export function register(on: On) {
         herdrTitle: herdrTitleOf(await readOrNull($, `${home}/${HERDR_TITLE_FILE}`), id),
         aiTitle: aiTitleOf(transcript),
         firstPrompt,
-      }),
+      }, ui),
       ...recapOf(await readOrNull($, `${home}/${RECAP_DIR}/${id}.json`)),
       model: (await $.session.model()).trim() === '' ? null : await $.session.model(),
       effort: lastEffort,
@@ -218,10 +227,10 @@ export function register(on: On) {
     try {
       await saveList($, statePath, upsert(await loadList($, statePath), entry))
     } catch (error) {
-      return { text: `park: 寫入清單失敗，沒有停泊：${String(error)}` }
+      return { text: ui.writeFailed(String(error)) }
     }
     $.clock.after(DEFER_MS, () => void $.command.run({ command: 'exit' }))
-    return { text: `已停泊：${entry.title}` }
+    return { text: ui.parked(entry.title) }
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -230,9 +239,9 @@ export function register(on: On) {
       if (pendingCheck !== null) {
         const wanted = pendingCheck
         pendingCheck = null
-        const effort = e.effort === undefined ? '（無）' : String(e.effort)
+        const effort = e.effort === undefined ? ui.noEffort : String(e.effort)
         const ok = (wanted.model === null || wanted.model === e.model) && (wanted.effort === null || wanted.effort === effort)
-        $.ui.log(`接回後第一則請求實際用：${e.model} · ${effort} ${ok ? '✓ 與停泊時一致' : `✗ 停泊時是 ${modelLine(wanted.model, wanted.effort)}`}`)
+        $.ui.log(ui.firstRequest(e.model, effort, ok ? null : modelLine(wanted.model, wanted.effort, ui)))
       }
     }
     return yield* next(e)
@@ -252,7 +261,7 @@ export function register(on: On) {
     return (
       <Box flexDirection="column">
         <Box flexDirection="row">
-          <Button key="park:open" label={`${shown.length} 個停泊的 session`} onPress={() => void $.ui.open({ id: PANE, title: '停泊的 session', focus: true, closeOnEscape: true })} />
+          <Button key="park:open" label={ui.button(shown.length)} onPress={() => void $.ui.open({ id: PANE, title: ui.paneTitle, focus: true, closeOnEscape: true })} />
         </Box>
         {await next(e)}
       </Box>
@@ -268,7 +277,7 @@ export function register(on: On) {
       void (async () => {
         const list = await loadList($, statePath)
         if (!list.some((one) => one.id === entry.id)) {
-          $.ui.toast('這筆已被接回或移除')
+          $.ui.toast(ui.alreadyTaken)
           shown = await shownNow($, list, cwd)
           $.ui.invalidate('ui.render')
           return
@@ -281,7 +290,7 @@ export function register(on: On) {
             () => {
               pendingCheck = { model: entry.model, effort: entry.effort }
             },
-            (error) => $.ui.log(`接回失敗：${String(error)}；停泊紀錄保留`),
+            (error) => $.ui.log(ui.resumeFailed(String(error))),
           ),
         )
       })()
@@ -298,7 +307,7 @@ export function register(on: On) {
       })()
     }
 
-    if (shown.length === 0) return <Text dimColor>沒有停泊的 session</Text>
+    if (shown.length === 0) return <Text dimColor>{ui.noParked}</Text>
     return (
       <Box flexDirection="column" rowGap={1}>
         {shown.map((entry) => (
@@ -307,13 +316,13 @@ export function register(on: On) {
             {entry.goal === null ? null : <Text dimColor wrap="truncate-end">{`goal  ${entry.goal}`}</Text>}
             {entry.now === null ? null : <Text dimColor wrap="truncate-end">{`now   ${entry.now}`}</Text>}
             {entry.next === null ? null : <Text dimColor wrap="truncate-end">{`next  ${entry.next}`}</Text>}
-            {modelLine(entry.model, entry.effort) === null ? null : <Text dimColor wrap="truncate-end">{`model ${modelLine(entry.model, entry.effort)}`}</Text>}
+            {modelLine(entry.model, entry.effort, ui) === null ? null : <Text dimColor wrap="truncate-end">{`model ${modelLine(entry.model, entry.effort, ui)}`}</Text>}
             <Text dimColor wrap="truncate-end">
-              {[ageText(entry.parkedAt, now), entry.branch === null ? null : `⎇ ${entry.branch}`, entry.dirGone ? `原目錄已不存在：${entry.dir}` : null].filter((part) => part !== null).join('  ·  ')}
+              {[ageText(entry.parkedAt, now, ui), entry.branch === null ? null : `⎇ ${entry.branch}`, entry.dirGone ? ui.dirGone(entry.dir) : null].filter((part) => part !== null).join('  ·  ')}
             </Text>
             <Box flexDirection="row" columnGap={1}>
-              <Button key={`park:${entry.id}:resume`} label="接回" onPress={() => resume(entry)} />
-              <Button key={`park:${entry.id}:remove`} label="移除" dimColor onPress={() => remove(entry)} />
+              <Button key={`park:${entry.id}:resume`} label={ui.resume} onPress={() => resume(entry)} />
+              <Button key={`park:${entry.id}:remove`} label={ui.remove} dimColor onPress={() => remove(entry)} />
             </Box>
           </Box>
         ))}

@@ -1,3 +1,5 @@
+import type { Strings } from './i18n.ts'
+
 export const STATE_FILE = '.local/state/cc-mod-park/parked.json'
 export const HERDR_TITLE_FILE = '.local/state/herdr-session-title/state.json'
 export const RECAP_DIR = '.cache/cc-recap'
@@ -77,9 +79,9 @@ const clip = (text: string, chars: number) => {
 
 export type TitleSources = { note: string | null; herdrTitle: string | null; aiTitle: string | null; firstPrompt: string | null }
 
-export const pickTitle = (sources: TitleSources): string => {
+export const pickTitle = (sources: TitleSources, ui: Strings): string => {
   const prompt = str(sources.firstPrompt)
-  return str(sources.note) ?? str(sources.herdrTitle) ?? str(sources.aiTitle) ?? (prompt === null ? null : clip(prompt, PROMPT_TITLE_CHARS)) ?? '（未命名 session）'
+  return str(sources.note) ?? str(sources.herdrTitle) ?? str(sources.aiTitle) ?? (prompt === null ? null : clip(prompt, PROMPT_TITLE_CHARS)) ?? ui.untitled
 }
 
 export const herdrTitleOf = (stateText: string | null, id: string): string | null => {
@@ -122,28 +124,26 @@ export const projectFolder = (dir: string) => dir.replace(/[^a-zA-Z0-9]/g, '-')
 export const firstPromptOf = (messages: readonly { role: string; text: string }[]): string | null =>
   messages.find((m) => m.role === 'user' && m.text.trim().length > 0 && !m.text.trimStart().startsWith('<'))?.text ?? null
 
-export const ageText = (parkedAt: number, now: number) => {
+export const ageText = (parkedAt: number, now: number, ui: Strings): string => {
   const minutes = Math.max(0, Math.floor((now - parkedAt) / 60_000))
-  if (minutes < 60) return `${minutes} 分鐘前`
+  if (minutes < 60) return ui.minutesAgo(minutes)
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小時前`
-  return `${Math.floor(hours / 24)} 天前`
+  if (hours < 24) return ui.hoursAgo(hours)
+  return ui.daysAgo(Math.floor(hours / 24))
 }
 
-export const modelLine = (model: string | null, effort: string | null): string | null =>
-  model === null && effort === null ? null : [model ?? '（model 未記錄）', effort ?? '（effort 未記錄）'].join(' · ')
+export const modelLine = (model: string | null, effort: string | null, ui: Strings): string | null =>
+  model === null && effort === null ? null : [model ?? ui.modelNotRecorded, effort ?? ui.effortNotRecorded].join(' · ')
 
 // One line per setting so a mismatch is visible at a glance after resume
-export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null; effortError: string | null }): string[] => [
-  wanted.model === null
-    ? 'model：停泊時沒記錄，未還原'
-    : `model：要 ${wanted.model}，現在 ${actual.model ?? '讀不到'} ${actual.model === wanted.model ? '✓' : '✗'}`,
+export const restoreReport = (wanted: { model: string | null; effort: string | null }, actual: { model: string | null; effortError: string | null }, ui: Strings): string[] => [
+  wanted.model === null ? ui.modelNotRestored : ui.modelCheck(wanted.model, actual.model, actual.model === wanted.model),
   // /effort run from a plugin returns no text, so the first request after resume is where effort is confirmed
   wanted.effort === null
-    ? 'effort：停泊時沒記錄，未還原'
+    ? ui.effortNotRestored
     : actual.effortError !== null
-      ? `effort：/effort ${wanted.effort} 失敗（${actual.effortError}），未還原 ✗`
-      : `effort：已用 /effort 設為 ${wanted.effort}，送出下一則訊息時確認`,
+      ? ui.effortFailed(wanted.effort, actual.effortError)
+      : ui.effortSet(wanted.effort),
 ]
 
 // The two settings a resume can overwrite: /resume saves the session's model as the default model,
@@ -186,10 +186,10 @@ export const defaultsBefore = (read: SettingsRead, model: string | null): Defaul
   return defaultsOf(read.value, model)
 }
 
-export const writeBackPlan = (before: Defaults | null, now: SettingsRead, model: string | null): { write: null; line: string } | { write: Json; line: null } => {
-  if (before === null) return { write: null, line: '預設設定：接回前讀不到 settings.json，沒有檢查是否被改動' }
-  if (now.kind !== 'ok' || !isObject(now.value)) return { write: null, line: '預設設定：讀不到 settings.json，沒有改回；請自己確認 /model 與 /effort 的預設' }
-  if (sameDefaults(before, defaultsOf(now.value, model))) return { write: null, line: '預設設定：沒被改動' }
+export const writeBackPlan = (before: Defaults | null, now: SettingsRead, model: string | null, ui: Strings): { write: null; line: string } | { write: Json; line: null } => {
+  if (before === null) return { write: null, line: ui.defaultsUnknownBefore }
+  if (now.kind !== 'ok' || !isObject(now.value)) return { write: null, line: ui.defaultsUnreadable }
+  if (sameDefaults(before, defaultsOf(now.value, model))) return { write: null, line: ui.defaultsUnchanged }
   return { write: withDefaults(now.value, model, before), line: null }
 }
 
