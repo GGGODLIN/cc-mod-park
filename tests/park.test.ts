@@ -126,7 +126,12 @@ describe('defaults write-back', () => {
 
   test('a key absent before the resume is removed rather than set to null', () => {
     const touched = { model: 'claude-sonnet-5-5', modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'low' } } }
-    expect(withDefaults(touched, 'claude-sonnet-5-5', { model: null, effort: null })).toEqual({ modelSettings: {} })
+    expect(withDefaults(touched, 'claude-sonnet-5-5', { model: null, effort: null })).toEqual({})
+  })
+
+  test('keeps other models when the resumed model entry empties', () => {
+    const touched = { modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'low' }, 'claude-opus-5-5': { effortLevel: 'high' } } }
+    expect(withDefaults(touched, 'claude-sonnet-5-5', { model: null, effort: null })).toEqual({ modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } })
   })
 
   test('writes back only over a settings file it could read as an object', () => {

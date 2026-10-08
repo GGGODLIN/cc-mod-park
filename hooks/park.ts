@@ -169,7 +169,11 @@ export const withDefaults = (settings: unknown, model: string | null, wanted: De
   const { effortLevel: _droppedEffort, ...otherFields } = asObject(all[model])
   const entry: Json = wanted.effort === null ? otherFields : { ...asObject(all[model]), effortLevel: wanted.effort }
   const { [model]: _droppedEntry, ...otherModels } = all
-  return { ...root, modelSettings: Object.keys(entry).length === 0 ? otherModels : { ...all, [model]: entry } }
+  if (Object.keys(entry).length > 0) return { ...root, modelSettings: { ...all, [model]: entry } }
+  // Left empty, modelSettings was most likely created by /effort during the resume; an empty one written by hand goes too, which changes no setting
+  if (Object.keys(otherModels).length > 0) return { ...root, modelSettings: otherModels }
+  const { modelSettings: _droppedAll, ...withoutModelSettings } = root
+  return withoutModelSettings
 }
 
 export const sameDefaults = (a: Defaults, b: Defaults) => a.model === b.model && a.effort === b.effort
