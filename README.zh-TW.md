@@ -38,11 +38,12 @@ claude plugin marketplace add GGGODLIN/cc-mod-park
 claude plugin install cc-mod-park@cc-mod-park
 ```
 
-安裝後新開的 session 會載入。Claude Code 2.1.290 不必另外設定就會載入 mod（2026-10-06 在沒設 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` 的情況下確認）。目前在 macOS 上的 Claude Code 2.1.288 與 2.1.289 實測過，2.1.290 只確認過會載入。
+安裝後新開的 session 會載入。Claude Code 2.1.290 不必另外設定就會載入 mod（2026-10-06 在沒設 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` 的情況下確認）。目前在 macOS 上的 Claude Code 2.1.288 與 2.1.289 實測過，2.1.290 只確認過會載入，`/park <筆記>` 在 2.1.292 與 2.1.294 確認過。
 
 ## 已知限制
 
 - 用 `claude --resume` 開新程序接回，清單會移除那一筆；在已開著的 session 裡用 `/resume` 選單切過去則不會，要自己按「移除」。
 - 所有 session 共用同一個清單檔，每次整份寫入。兩個 session 同一瞬間停泊或接回，可能掉其中一筆變更。
 - 清單檔放在 `$HOME` 底下，不跟著 `CLAUDE_CONFIG_DIR` 分開。
+- 如果別的 mod 在 `AbovePrompt` 回傳自己的元件、沒有呼叫 `next(e)`，停泊按鈕就不會出現，也不會報錯。
 - 接回後如果 `settings.json` 的預設 model／effort 被改掉，會寫回原值；同一秒內別的 session 或你自己改的也會被寫回。讀不到 `settings.json` 時不寫入，結果那行會說明。

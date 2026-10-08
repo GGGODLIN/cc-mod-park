@@ -53,7 +53,8 @@ The UI comes in English and Traditional Chinese. The default `auto` follows the 
 
 ## Known limits
 
-- Tested on Claude Code 2.1.288 and 2.1.289, on macOS; loading checked on 2.1.290. Function hooks are a newer surface of Claude Code, and later versions may change it.
+- Tested on Claude Code 2.1.288 and 2.1.289, on macOS; loading checked on 2.1.290; `/park <note>` checked on 2.1.292 and 2.1.294. Function hooks are a newer surface of Claude Code, and later versions may change it.
+- If another mod's `AbovePrompt` handler returns its own element without calling `next(e)`, the park button does not show, with no error.
 - Every session shares one list file, written whole each time. Two sessions parking or resuming in the same moment can drop one of the changes.
 - The list file lives under `$HOME`, not under `CLAUDE_CONFIG_DIR`, so separate config folders for the same user share one list.
 - After Resume, your default model and effort in `settings.json` are put back if they changed. A change another session or you made in that same second is put back too, since the file cannot tell who changed it. If `settings.json` cannot be read, nothing is written and the result line says so.
