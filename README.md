@@ -22,6 +22,7 @@ The button hides once you send your first prompt that is not a slash command, so
 Details:
 
 - The list matches the folder exactly. A session parked in `repo/sub` shows up in `repo/sub`, not in `repo`.
+- The folder recorded is the one the session was started in, or moved to with `/cd`. A shell `cd` run during the session does not change it.
 - If the parked folder no longer exists (for example, a removed git worktree), the entry shows at its repo root, or else at the nearest existing parent folder.
 - Starting a parked session with `claude --resume` in a new process removes it from the list. Switching to it with the `/resume` picker inside a session that is already open does not, because a mod gets no start event for that switch; remove the entry by hand.
 - The title comes from, in order: your `/park` note, a Herdr pane title, the session's AI title, or the first prompt. The Herdr and recap sources are files from the author's own setup (`~/.local/state/herdr-session-title/state.json`, `~/.cache/cc-recap/<id>.json`); when they are missing they are skipped.

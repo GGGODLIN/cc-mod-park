@@ -19,6 +19,8 @@ session 開著也有成本：在作者的機器上，每個閒置 session 約佔
 
 送出第一則不是斜線指令的訊息後，按鈕就會藏起來。
 
+清單只顯示資料夾完全相同的 session。記下的是 session 開啟時的資料夾，或用 `/cd` 換過去的資料夾；session 裡 shell 跑過的 `cd` 不算。
+
 ## 語言
 
 介面有英文與繁體中文。預設 `auto`：先看 Claude Code `settings.json` 的 `language`（例如「繁體中文」），再看 `LC_ALL`／`LANG`，都沒有就用英文；任何中文都顯示繁體中文。語言在 session 啟動時讀一次。要固定語言，在 `/config` 找到這個 plugin 的 Language 選 `en` 或 `zh-TW`。

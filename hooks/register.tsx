@@ -157,7 +157,7 @@ const resumeAndRestore = async ($: EngineInterface, entry: Entry, home: string, 
 
 export const register: Register = (on, options) => {
   let home: string | null = null
-  let cwd = ''
+  let root = ''
   let shown: Shown[] = []
   // In memory on purpose: hiding is for this session only, the list on disk stays
   let active = false
@@ -180,7 +180,7 @@ export const register: Register = (on, options) => {
     ui = stringsFor(pickLocale({ option: options.language, claudeLanguage, envLang }))
     await $.command.register({ name: 'park', description: ui.commandDescription, argumentHint: ui.argumentHint })
     try {
-      cwd = await $.session.cwd()
+      root = await $.session.root()
       let list = await loadList($, statePath)
       // Our own id still listed means this session came back some other way (claude --resume, the /resume picker)
       const self = await $.session.id()
@@ -188,7 +188,7 @@ export const register: Register = (on, options) => {
         list = without(list, self)
         await saveList($, statePath, list)
       }
-      shown = await shownNow($, list, cwd)
+      shown = await shownNow($, list, root)
       active = shown.length > 0
       $.ui.invalidate('ui.render')
     } catch (error) {
@@ -200,10 +200,11 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'park' }, async ($, e) => {
     if (home === null) return { text: ui.noHome }
     const id = await $.session.id()
-    const dir = await $.session.cwd()
+    // Not cwd: a shell cd during the session moves cwd, and the entry would then show only in that subfolder
+    const dir = await $.session.root()
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${home}/.claude`
     const commonDir = await git($, dir, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
-    const transcript = (await readOrNull($, `${configDir}/projects/${projectFolder(await $.session.root())}/${id}.jsonl`)) ?? (await readOrNull($, `${configDir}/projects/${projectFolder(dir)}/${id}.jsonl`))
+    const transcript = (await readOrNull($, `${configDir}/projects/${projectFolder(dir)}/${id}.jsonl`)) ?? (await readOrNull($, `${configDir}/projects/${projectFolder(await $.session.cwd())}/${id}.jsonl`))
     let firstPrompt: string | null = null
     try {
       firstPrompt = firstPromptOf(await $.session.messages())
@@ -278,7 +279,7 @@ export const register: Register = (on, options) => {
         const list = await loadList($, statePath)
         if (!list.some((one) => one.id === entry.id)) {
           $.ui.toast(ui.alreadyTaken)
-          shown = await shownNow($, list, cwd)
+          shown = await shownNow($, list, root)
           $.ui.invalidate('ui.render')
           return
         }
@@ -300,7 +301,7 @@ export const register: Register = (on, options) => {
       void (async () => {
         const list = without(await loadList($, statePath), entry.id)
         await saveList($, statePath, list)
-        shown = await shownNow($, list, cwd)
+        shown = await shownNow($, list, root)
         if (shown.length > 0) return $.ui.invalidate('ui.render')
         active = false
         closeList($)
