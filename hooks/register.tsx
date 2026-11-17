@@ -94,10 +94,11 @@ const runError = async ($: EngineInterface, command: string, args: string) => {
 
 // In-place /resume does not bring back the parked session's model or effort, so set both after it lands
 // settings.json is usually a symlink into ~/.claude; writing the link path could replace the link with a plain file
+// Not `$.process.run(['realpath', ...])`: the built-in security plugin (seen on 2.1.326) refuses any process naming a settings file
 const settingsFile = async ($: EngineInterface, home: string) => {
   const link = `${(await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${home}/.claude`}/settings.json`
-  const real = await $.process.run(['realpath', link], { timeoutMs: 5_000 })
-  return real.exitCode === 0 ? real.stdout.trim() : link
+  const stat = await $.fs.stat(link, { resolve: true }).catch(() => undefined)
+  return stat?.realPath ?? link
 }
 
 const readSettings = async ($: EngineInterface, path: string): Promise<SettingsRead> => {
